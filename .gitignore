@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Data - Parquet files are too large for GitHub free tier (>100MB)
+*.parquet
+!estabelecimentos_mg_part*_enriched.parquet
+
+# Temp files
+municipios_temp_app.xlsx
+municipios_locked_test.xlsx
+teste.py
+teste2.py
+
+# System
+thumbs.db
+.DS_Store
