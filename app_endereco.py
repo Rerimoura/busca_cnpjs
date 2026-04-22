@@ -13,7 +13,7 @@ SITUACAO_MAP = {
 }
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PARQUET_PATTERN = os.path.join(BASE_DIR, 'estabelecimentos_mg_part*_enriched.parquet')
+PARQUET_PATTERN = os.path.join(BASE_DIR, 'estabelecimentos_mg_part*.parquet')
 
 
 @st.cache_data
@@ -141,11 +141,9 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             .fillna('Desconhecido')
         )
 
-        # Format date from YYYYMMDD to DD/MM/YYYY
-        df_display['data_situacao_cadastral'] = (
-            df_display['data_situacao_cadastral']
-            .astype(str)
-            .apply(lambda d: f"{d[6:8]}/{d[4:6]}/{d[:4]}" if len(d) == 8 else d)
+        # Convert date to datetime object so Streamlit sorts it correctly
+        df_display['data_situacao_cadastral'] = pd.to_datetime(
+            df_display['data_situacao_cadastral'].astype(str), format='%Y%m%d', errors='coerce'
         )
 
         df_display = df_display[['CNPJ', 'razao_social', 'Logradouro', 'numero', 'bairro',
@@ -159,6 +157,7 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             hide_index=True,
             column_config={
                 "CNPJ": st.column_config.TextColumn("CNPJ", width="medium"),
+                "Data Situação": st.column_config.DateColumn("Data Situação", format="DD/MM/YYYY"),
             }
         )
 
