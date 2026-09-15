@@ -7,7 +7,7 @@ venv/
 
 # Data - Parquet files are too large for GitHub free tier (>100MB)
 *.parquet
-!estabelecimentos_mg_part[1-2].parquet
+!estabelecimentos_mg_part[1-9].parquet
 
 # Temp files
 municipios_temp_app.xlsx
