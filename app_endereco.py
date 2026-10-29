@@ -51,29 +51,36 @@ def query_duckdb(sql, params=None):
 
 
 @st.cache_data(ttl=300)
-def buscar_cnpjs(cod_municipio, texto_rua, numero=None):
-    """List all CNPJs on streets matching the text, optionally filtered by number."""
+def buscar_cnpjs(cod_municipio, texto_rua, numero=None, bairro=None, cnae=None):
+    """List all CNPJs on streets matching the text, optionally filtered by
+    number, bairro and CNAE (principal ou secundário)."""
+    conditions = ["municipio = ?", "logradouro ILIKE ?"]
+    params = [cod_municipio, f'%{texto_rua}%']
+
     if numero:
-        sql = f"""
-            SELECT CNPJ, razao_social, tipo_de_logradouro, logradouro, numero, bairro,
-                   situacao_cadastral, data_situacao_cadastral
-            FROM '{PARQUET_PATTERN}'
-            WHERE municipio = ?
-              AND logradouro ILIKE ?
-              AND CAST(numero AS VARCHAR) = ?
-            ORDER BY data_situacao_cadastral DESC, logradouro, numero, CNPJ
-        """
-        return query_duckdb(sql, [cod_municipio, f'%{texto_rua}%', str(numero)])
-    else:
-        sql = f"""
-            SELECT CNPJ, razao_social, tipo_de_logradouro, logradouro, numero, bairro,
-                   situacao_cadastral, data_situacao_cadastral
-            FROM '{PARQUET_PATTERN}'
-            WHERE municipio = ?
-              AND logradouro ILIKE ?
-            ORDER BY data_situacao_cadastral DESC, logradouro, numero, CNPJ
-        """
-        return query_duckdb(sql, [cod_municipio, f'%{texto_rua}%'])
+        conditions.append("CAST(numero AS VARCHAR) = ?")
+        params.append(str(numero))
+
+    if bairro:
+        conditions.append("bairro ILIKE ?")
+        params.append(f'%{bairro}%')
+
+    if cnae:
+        conditions.append(
+            "(cnae_fiscal_principal = ? OR ',' || cnae_fiscal_secundaria || ',' ILIKE ?)"
+        )
+        params.append(cnae)
+        params.append(f'%,{cnae},%')
+
+    sql = f"""
+        SELECT CNPJ, razao_social, tipo_de_logradouro, logradouro, numero, bairro,
+               situacao_cadastral, data_situacao_cadastral,
+               cnae_fiscal_principal, cnae_fiscal_secundaria
+        FROM '{PARQUET_PATTERN}'
+        WHERE {' AND '.join(conditions)}
+        ORDER BY data_situacao_cadastral DESC, logradouro, numero, CNPJ
+    """
+    return query_duckdb(sql, params)
 
 
 # ── Page Config ──────────────────────────────────────────────────────────────
@@ -105,13 +112,27 @@ with col_rua:
 with col_num:
     numero_input = st.text_input("Número (opcional)", placeholder="Ex: 123")
 
+col_bairro, col_cnae = st.columns(2)
+
+with col_bairro:
+    bairro_input = st.text_input("Bairro (opcional)", placeholder="Ex: CENTRO")
+
+with col_cnae:
+    cnae_input = st.text_input(
+        "CNAE - principal ou secundário (opcional)",
+        placeholder="Ex: 5611201",
+        max_chars=7,
+    )
+
 # ── Results ──────────────────────────────────────────────────────────────────
 if municipio_nome and texto_rua and len(texto_rua) >= 3:
     cod_municipio = mun_nome_para_cod[municipio_nome]
     num_filtro = numero_input.strip() if numero_input else None
+    bairro_filtro = bairro_input.strip() if bairro_input else None
+    cnae_filtro = cnae_input.strip() if cnae_input else None
 
     with st.spinner("Buscando estabelecimentos..."):
-        df_result = buscar_cnpjs(cod_municipio, texto_rua, num_filtro)
+        df_result = buscar_cnpjs(cod_municipio, texto_rua, num_filtro, bairro_filtro, cnae_filtro)
 
     if df_result.empty:
         st.warning("Nenhum estabelecimento encontrado com esse endereço.")
@@ -155,9 +176,10 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
         )
 
         df_display = df_display[['CNPJ', 'razao_social', 'Logradouro', 'numero', 'bairro',
-                                  'situacao_cadastral', 'data_situacao_cadastral', 'Código Cliente']]
+                                  'situacao_cadastral', 'data_situacao_cadastral',
+                                  'cnae_fiscal_principal', 'Código Cliente']]
         df_display.columns = ['CNPJ', 'Razão Social', 'Logradouro', 'Número', 'Bairro',
-                              'Situação', 'Data Situação', 'Código Cliente']
+                              'Situação', 'Data Situação', 'CNAE Principal', 'Código Cliente']
 
         st.dataframe(
             df_display,
