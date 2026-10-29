@@ -3,4 +3,5 @@ pandas
 pyarrow
 openpyxl
 duckdb
-starlette<1.4.0
+psycopg2-binary
+python-dotenv

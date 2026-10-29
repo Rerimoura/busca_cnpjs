@@ -3,6 +3,8 @@ import pandas as pd
 import duckdb
 import os
 
+from db_clientes import buscar_codigos_clientes
+
 # Status mapping
 SITUACAO_MAP = {
     '01': 'Nula', '1': 'Nula',
@@ -128,6 +130,12 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
         # ── Format table ─────────────────────────────────────────────────
         df_display = df_result.copy()
 
+        # Lookup customer registration code in Biz Distribuidora's database
+        codigos_clientes = buscar_codigos_clientes(tuple(df_display['CNPJ'].astype(int)))
+        df_display['Código Cliente'] = df_display['CNPJ'].astype(int).map(codigos_clientes).apply(
+            lambda x: str(int(x)) if pd.notna(x) else 'Não cadastrado'
+        )
+
         # Combine tipo + logradouro into one column
         df_display['Logradouro'] = (
             df_display['tipo_de_logradouro'].fillna('') + ' ' +
@@ -147,9 +155,9 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
         )
 
         df_display = df_display[['CNPJ', 'razao_social', 'Logradouro', 'numero', 'bairro',
-                                  'situacao_cadastral', 'data_situacao_cadastral']]
+                                  'situacao_cadastral', 'data_situacao_cadastral', 'Código Cliente']]
         df_display.columns = ['CNPJ', 'Razão Social', 'Logradouro', 'Número', 'Bairro',
-                              'Situação', 'Data Situação']
+                              'Situação', 'Data Situação', 'Código Cliente']
 
         st.dataframe(
             df_display,
@@ -158,6 +166,7 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             column_config={
                 "CNPJ": st.column_config.TextColumn("CNPJ", width="medium"),
                 "Data Situação": st.column_config.DateColumn("Data Situação", format="DD/MM/YYYY"),
+                "Código Cliente": st.column_config.TextColumn("Código Cliente", help="Código na base da Biz Distribuidora, se o CNPJ tiver cadastro"),
             }
         )
 
