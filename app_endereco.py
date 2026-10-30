@@ -73,15 +73,19 @@ def query_duckdb(sql, params=None):
 
 
 @st.cache_data(ttl=300)
-def buscar_cnpjs(cod_municipio, texto_rua, numero=None, bairro=None, cnae=None, situacao_codigos=None):
+def buscar_cnpjs(cod_municipio, texto_rua, numero=None, bairro=None, cnae=None, situacao_codigos=None, razao_social=None):
     """List all CNPJs on streets matching the text, optionally filtered by
-    number, bairro, CNAE (principal ou secundário) e situação cadastral na Receita."""
+    number, bairro, CNAE (principal ou secundário), situação cadastral na Receita e razão social."""
     conditions = ["municipio = ?", "logradouro ILIKE ?"]
     params = [cod_municipio, f'%{texto_rua}%']
 
     if numero:
         conditions.append("CAST(numero AS VARCHAR) = ?")
         params.append(str(numero))
+
+    if razao_social:
+        conditions.append("razao_social ILIKE ?")
+        params.append(f'%{razao_social}%')
 
     if bairro:
         conditions.append("bairro ILIKE ?")
@@ -140,10 +144,15 @@ with col_rua:
 with col_num:
     numero_input = st.text_input("Número (opcional)", placeholder="Ex: 123")
 
-col_bairro, col_cnae = st.columns(2)
+col_razao, col_bairro = st.columns(2)
+
+with col_razao:
+    razao_social_input = st.text_input("Razão Social (opcional)", placeholder="Ex: PADARIA")
 
 with col_bairro:
     bairro_input = st.text_input("Bairro (opcional)", placeholder="Ex: CENTRO")
+
+col_cnae, col_situacao = st.columns(2)
 
 with col_cnae:
     cnae_opcao = st.selectbox(
@@ -153,11 +162,9 @@ with col_cnae:
         placeholder="Buscar por atividade ou código...",
     )
 
-col_situacao, _ = st.columns(2)
-
 with col_situacao:
     situacao_opcao = st.selectbox(
-        "Situação cadastral (opcional)",
+        "Situação Receita (opcional)",
         options=sorted(SITUACAO_CODIGOS_POR_LABEL.keys()),
         index=None,
         placeholder="Todas",
@@ -172,10 +179,12 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
     bairro_filtro = bairro_input.strip() if bairro_input else None
     cnae_filtro = cnae_opcao.rsplit('(', 1)[-1].rstrip(')') if cnae_opcao else None
     situacao_filtro = tuple(SITUACAO_CODIGOS_POR_LABEL[situacao_opcao]) if situacao_opcao else None
+    razao_social_filtro = razao_social_input.strip() if razao_social_input else None
 
     with st.spinner("Buscando estabelecimentos..."):
         df_result = buscar_cnpjs(
-            cod_municipio, texto_rua, num_filtro, bairro_filtro, cnae_filtro, situacao_filtro
+            cod_municipio, texto_rua, num_filtro, bairro_filtro, cnae_filtro, situacao_filtro,
+            razao_social_filtro,
         )
 
     if df_result.empty:
@@ -224,11 +233,11 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             lambda cod: f"{cnae_cod_para_desc.get(str(cod), 'Desconhecido')} ({cod})"
         )
 
-        df_display = df_display[['CNPJ', 'razao_social', 'Logradouro', 'numero', 'bairro',
+        df_display = df_display[['CNPJ', 'Código Cliente', 'razao_social', 'Logradouro', 'numero', 'bairro',
                                   'situacao_cadastral', 'data_situacao_cadastral',
-                                  'cnae_fiscal_principal', 'Código Cliente']]
-        df_display.columns = ['CNPJ', 'Razão Social', 'Logradouro', 'Número', 'Bairro',
-                              'Situação', 'Data Situação', 'CNAE Principal', 'Código Cliente']
+                                  'cnae_fiscal_principal']]
+        df_display.columns = ['CNPJ', 'Código Cliente', 'Razão Social', 'Logradouro', 'Número', 'Bairro',
+                              'Situação Receita', 'Data Situação', 'CNAE Principal']
 
         st.dataframe(
             df_display,
@@ -236,7 +245,7 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             hide_index=True,
             column_config={
                 "CNPJ": st.column_config.TextColumn("CNPJ", width="medium"),
-                "Situação": st.column_config.TextColumn("Situação", help="Situação cadastral na Receita Federal, não reflete o cadastro na Biz Distribuidora"),
+                "Situação Receita": st.column_config.TextColumn("Situação Receita", help="Situação cadastral na Receita Federal, não reflete o cadastro na Biz Distribuidora"),
                 "Data Situação": st.column_config.DateColumn("Data Situação", format="DD/MM/YYYY"),
                 "Código Cliente": st.column_config.TextColumn("Código Cliente", help="Código na base da Biz Distribuidora, se o CNPJ tiver cadastro"),
             }
