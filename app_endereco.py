@@ -14,8 +14,30 @@ SITUACAO_MAP = {
     '08': 'Baixada', '8': 'Baixada'
 }
 
+# Situação cadastral agrupada por rótulo, para o filtro (vários códigos têm o mesmo significado)
+SITUACAO_CODIGOS_POR_LABEL = {}
+for _codigo, _label in SITUACAO_MAP.items():
+    SITUACAO_CODIGOS_POR_LABEL.setdefault(_label, []).append(_codigo)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PARQUET_PATTERN = os.path.join(BASE_DIR, 'estabelecimentos_mg_part*.parquet')
+CNAES_PATH = os.path.join(BASE_DIR, 'cnaes.csv')
+
+
+@st.cache_data
+def load_cnaes():
+    """Carrega a tabela de CNAEs (código -> descrição) para a busca por atividade."""
+    try:
+        df_cnae = pd.read_csv(CNAES_PATH, sep=';', dtype={'codigo': str}, encoding='utf-8')
+    except Exception:
+        return {}, []
+
+    cod_para_desc = dict(zip(df_cnae['codigo'], df_cnae['descricao']))
+    opcoes = sorted(
+        (f"{desc} ({cod})" for cod, desc in cod_para_desc.items()),
+        key=str.lower,
+    )
+    return cod_para_desc, opcoes
 
 
 @st.cache_data
@@ -51,9 +73,9 @@ def query_duckdb(sql, params=None):
 
 
 @st.cache_data(ttl=300)
-def buscar_cnpjs(cod_municipio, texto_rua, numero=None, bairro=None, cnae=None):
+def buscar_cnpjs(cod_municipio, texto_rua, numero=None, bairro=None, cnae=None, situacao_codigos=None):
     """List all CNPJs on streets matching the text, optionally filtered by
-    number, bairro and CNAE (principal ou secundário)."""
+    number, bairro, CNAE (principal ou secundário) e situação cadastral na Receita."""
     conditions = ["municipio = ?", "logradouro ILIKE ?"]
     params = [cod_municipio, f'%{texto_rua}%']
 
@@ -72,6 +94,11 @@ def buscar_cnpjs(cod_municipio, texto_rua, numero=None, bairro=None, cnae=None):
         params.append(cnae)
         params.append(f'%,{cnae},%')
 
+    if situacao_codigos:
+        placeholders = ', '.join('?' for _ in situacao_codigos)
+        conditions.append(f"situacao_cadastral IN ({placeholders})")
+        params.extend(situacao_codigos)
+
     sql = f"""
         SELECT CNPJ, razao_social, tipo_de_logradouro, logradouro, numero, bairro,
                situacao_cadastral, data_situacao_cadastral,
@@ -88,8 +115,9 @@ st.set_page_config(page_title="Busca por Endereço - MG", layout="wide")
 st.title("🔍 Busca de CNPJs por Endereço")
 st.markdown("Encontre todos os estabelecimentos em uma rua de Minas Gerais.")
 
-# ── Load municipalities ──────────────────────────────────────────────────────
+# ── Load municipalities and CNAEs ──────────────────────────────────────────────
 mun_nome_para_cod = load_municipios()
+cnae_cod_para_desc, cnae_opcoes = load_cnaes()
 
 if not mun_nome_para_cod:
     st.error("Erro ao carregar a lista de municípios.")
@@ -118,21 +146,37 @@ with col_bairro:
     bairro_input = st.text_input("Bairro (opcional)", placeholder="Ex: CENTRO")
 
 with col_cnae:
-    cnae_input = st.text_input(
+    cnae_opcao = st.selectbox(
         "CNAE - principal ou secundário (opcional)",
-        placeholder="Ex: 5611201",
-        max_chars=7,
+        options=cnae_opcoes,
+        index=None,
+        placeholder="Buscar por atividade ou código...",
     )
+
+col_situacao, _ = st.columns(2)
+
+with col_situacao:
+    situacao_opcao = st.selectbox(
+        "Situação cadastral (opcional)",
+        options=sorted(SITUACAO_CODIGOS_POR_LABEL.keys()),
+        index=None,
+        placeholder="Todas",
+        help="Situação cadastral do CNPJ na Receita Federal — não reflete o cadastro na Biz Distribuidora.",
+    )
+    st.caption("ℹ️ Situação cadastral na Receita Federal. Não é a situação do cadastro na Biz.")
 
 # ── Results ──────────────────────────────────────────────────────────────────
 if municipio_nome and texto_rua and len(texto_rua) >= 3:
     cod_municipio = mun_nome_para_cod[municipio_nome]
     num_filtro = numero_input.strip() if numero_input else None
     bairro_filtro = bairro_input.strip() if bairro_input else None
-    cnae_filtro = cnae_input.strip() if cnae_input else None
+    cnae_filtro = cnae_opcao.rsplit('(', 1)[-1].rstrip(')') if cnae_opcao else None
+    situacao_filtro = tuple(SITUACAO_CODIGOS_POR_LABEL[situacao_opcao]) if situacao_opcao else None
 
     with st.spinner("Buscando estabelecimentos..."):
-        df_result = buscar_cnpjs(cod_municipio, texto_rua, num_filtro, bairro_filtro, cnae_filtro)
+        df_result = buscar_cnpjs(
+            cod_municipio, texto_rua, num_filtro, bairro_filtro, cnae_filtro, situacao_filtro
+        )
 
     if df_result.empty:
         st.warning("Nenhum estabelecimento encontrado com esse endereço.")
@@ -175,6 +219,11 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             df_display['data_situacao_cadastral'].astype(str), format='%Y%m%d', errors='coerce'
         )
 
+        # Show CNAE description instead of just the raw code
+        df_display['cnae_fiscal_principal'] = df_display['cnae_fiscal_principal'].map(
+            lambda cod: f"{cnae_cod_para_desc.get(str(cod), 'Desconhecido')} ({cod})"
+        )
+
         df_display = df_display[['CNPJ', 'razao_social', 'Logradouro', 'numero', 'bairro',
                                   'situacao_cadastral', 'data_situacao_cadastral',
                                   'cnae_fiscal_principal', 'Código Cliente']]
@@ -187,6 +236,7 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             hide_index=True,
             column_config={
                 "CNPJ": st.column_config.TextColumn("CNPJ", width="medium"),
+                "Situação": st.column_config.TextColumn("Situação", help="Situação cadastral na Receita Federal, não reflete o cadastro na Biz Distribuidora"),
                 "Data Situação": st.column_config.DateColumn("Data Situação", format="DD/MM/YYYY"),
                 "Código Cliente": st.column_config.TextColumn("Código Cliente", help="Código na base da Biz Distribuidora, se o CNPJ tiver cadastro"),
             }
