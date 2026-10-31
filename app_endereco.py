@@ -173,22 +173,27 @@ with col_situacao:
     st.caption("ℹ️ Situação cadastral na Receita Federal. Não é a situação do cadastro na Biz.")
 
 # ── Results ──────────────────────────────────────────────────────────────────
-if municipio_nome and texto_rua and len(texto_rua) >= 3:
+rua_valida = bool(texto_rua) and len(texto_rua) >= 3
+razao_social_strip = razao_social_input.strip() if razao_social_input else ''
+razao_valida = len(razao_social_strip) >= 3
+
+if municipio_nome and (rua_valida or razao_valida):
     cod_municipio = mun_nome_para_cod[municipio_nome]
+    rua_filtro = texto_rua if rua_valida else ''
     num_filtro = numero_input.strip() if numero_input else None
     bairro_filtro = bairro_input.strip() if bairro_input else None
     cnae_filtro = cnae_opcao.rsplit('(', 1)[-1].rstrip(')') if cnae_opcao else None
     situacao_filtro = tuple(SITUACAO_CODIGOS_POR_LABEL[situacao_opcao]) if situacao_opcao else None
-    razao_social_filtro = razao_social_input.strip() if razao_social_input else None
+    razao_social_filtro = razao_social_strip if razao_valida else None
 
     with st.spinner("Buscando estabelecimentos..."):
         df_result = buscar_cnpjs(
-            cod_municipio, texto_rua, num_filtro, bairro_filtro, cnae_filtro, situacao_filtro,
+            cod_municipio, rua_filtro, num_filtro, bairro_filtro, cnae_filtro, situacao_filtro,
             razao_social_filtro,
         )
 
     if df_result.empty:
-        st.warning("Nenhum estabelecimento encontrado com esse endereço.")
+        st.warning("Nenhum estabelecimento encontrado com esses filtros.")
     else:
         # ── Metrics ──────────────────────────────────────────────────────
         st.markdown("---")
@@ -251,5 +256,5 @@ if municipio_nome and texto_rua and len(texto_rua) >= 3:
             }
         )
 
-elif municipio_nome and texto_rua and len(texto_rua) < 3:
-    st.info("Digite pelo menos 3 caracteres para buscar o logradouro.")
+elif municipio_nome and (texto_rua or razao_social_input) and not (rua_valida or razao_valida):
+    st.info("Digite pelo menos 3 caracteres no logradouro ou na razão social para buscar.")
