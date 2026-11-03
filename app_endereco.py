@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import duckdb
+import io
 import os
+import re
 import unicodedata
 
 from db_clientes import buscar_codigos_clientes
@@ -130,17 +132,25 @@ with st.expander("ℹ️ Como filtrar"):
     st.markdown(
         """
         **Para a busca começar**, selecione o **Município** e preencha pelo menos um destes campos:
-        **Logradouro**, **Razão Social** ou **Bairro** (mínimo 3 caracteres), ou escolha um **CNAE**.
+        - **Logradouro**, **Razão Social** ou **Bairro** (mínimo 3 caracteres); ou
+        - **CNAE** (escolha uma atividade na lista).
 
-        Depois de começar a busca, use os demais campos para refinar o resultado:
+        Depois de começar a busca, use os demais campos para refinar ainda mais o resultado:
         - **Número**: filtra pelo número do endereço.
         - **CNAE**: filtra pela atividade do estabelecimento (principal ou secundária) — digite o nome
-          da atividade (ex: "restaurante") ou o código.
+          da atividade (ex: "restaurante") ou o código. A lista está em ordem alfabética.
         - **Situação Receita**: filtra pela situação cadastral na Receita Federal (Ativa, Baixada, etc).
+          **Atenção**: essa é a situação na Receita Federal, **não** é a situação do cadastro na Biz.
 
         Na tabela de resultados, a coluna **Código Cliente** mostra se o CNPJ já tem cadastro na
         Biz Distribuidora: um código indica que o cliente já está cadastrado, e "Não cadastrado"
         indica que ainda não existe cadastro para esse CNPJ.
+
+        A coluna **Situação Crédito Biz** mostra a liberação de crédito do cliente: **Liberado no
+        prazo** (tem limite de crédito aberto), **Liberado no antecipado** (aprovado só para
+        pagamento antecipado) ou **Suspenso**.
+
+        Use o botão **📥 Baixar Excel**, logo abaixo da tabela, para exportar os resultados.
         """
     )
 
@@ -237,10 +247,14 @@ if municipio_nome and (rua_valida or razao_valida or bairro_valida or cnae_valid
         # ── Format table ─────────────────────────────────────────────────
         df_display = df_result.copy()
 
-        # Lookup customer registration code in Biz Distribuidora's database
+        # Lookup customer registration code and credit status in Biz Distribuidora's database
         codigos_clientes = buscar_codigos_clientes(tuple(df_display['CNPJ'].astype(int)))
-        df_display['Código Cliente'] = df_display['CNPJ'].astype(int).map(codigos_clientes).apply(
-            lambda x: str(int(x)) if pd.notna(x) else 'Não cadastrado'
+        dados_cliente = df_display['CNPJ'].astype(int).map(codigos_clientes)
+        df_display['Código Cliente'] = dados_cliente.apply(
+            lambda v: str(v[0]) if isinstance(v, tuple) else 'Não cadastrado'
+        )
+        df_display['Situação Crédito Biz'] = dados_cliente.apply(
+            lambda v: v[1] if isinstance(v, tuple) else 'Não cadastrado'
         )
 
         # Combine tipo + logradouro into one column
@@ -266,11 +280,11 @@ if municipio_nome and (rua_valida or razao_valida or bairro_valida or cnae_valid
             lambda cod: f"{cnae_cod_para_desc.get(str(cod), 'Desconhecido')} ({cod})"
         )
 
-        df_display = df_display[['CNPJ', 'Código Cliente', 'razao_social', 'Logradouro', 'numero', 'bairro',
-                                  'situacao_cadastral', 'data_situacao_cadastral',
+        df_display = df_display[['CNPJ', 'Código Cliente', 'Situação Crédito Biz', 'razao_social', 'Logradouro',
+                                  'numero', 'bairro', 'situacao_cadastral', 'data_situacao_cadastral',
                                   'cnae_fiscal_principal']]
-        df_display.columns = ['CNPJ', 'Código Cliente', 'Razão Social', 'Logradouro', 'Número', 'Bairro',
-                              'Situação Receita', 'Data Situação', 'CNAE Principal']
+        df_display.columns = ['CNPJ', 'Código Cliente', 'Situação Crédito Biz', 'Razão Social', 'Logradouro',
+                              'Número', 'Bairro', 'Situação Receita', 'Data Situação', 'CNAE Principal']
 
         st.dataframe(
             df_display,
@@ -281,7 +295,21 @@ if municipio_nome and (rua_valida or razao_valida or bairro_valida or cnae_valid
                 "Situação Receita": st.column_config.TextColumn("Situação Receita", help="Situação cadastral na Receita Federal, não reflete o cadastro na Biz Distribuidora"),
                 "Data Situação": st.column_config.DateColumn("Data Situação", format="DD/MM/YYYY"),
                 "Código Cliente": st.column_config.TextColumn("Código Cliente", help="Código na base da Biz Distribuidora, se o CNPJ tiver cadastro"),
+                "Situação Crédito Biz": st.column_config.TextColumn("Situação Crédito Biz", help="Liberado no prazo (limite de crédito aberto), Liberado no antecipado, ou Suspenso. Não cadastrado se o CNPJ não tem cliente na Biz."),
             }
+        )
+
+        # ── Export to Excel ─────────────────────────────────────────────────
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            df_display.to_excel(writer, index=False, sheet_name='Resultados')
+
+        municipio_slug = re.sub(r'[^A-Za-z0-9]+', '_', municipio_nome).strip('_')
+        st.download_button(
+            label="📥 Baixar Excel",
+            data=excel_buffer.getvalue(),
+            file_name=f"estabelecimentos_{municipio_slug}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
 elif municipio_nome and (texto_rua or razao_social_input or bairro_input) and not (rua_valida or razao_valida or bairro_valida):
