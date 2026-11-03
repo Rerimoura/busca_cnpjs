@@ -119,6 +119,24 @@ st.set_page_config(page_title="Busca por Endereço - MG", layout="wide")
 st.title("🔍 Busca de CNPJs por Endereço")
 st.markdown("Encontre todos os estabelecimentos em uma rua de Minas Gerais.")
 
+with st.expander("ℹ️ Como filtrar"):
+    st.markdown(
+        """
+        **Para a busca começar**, selecione o **Município** e preencha pelo menos um destes campos
+        (mínimo 3 caracteres): **Logradouro**, **Razão Social** ou **Bairro**.
+
+        Depois de começar a busca, use os demais campos para refinar o resultado:
+        - **Número**: filtra pelo número do endereço.
+        - **CNAE**: filtra pela atividade do estabelecimento (principal ou secundária) — digite o nome
+          da atividade (ex: "restaurante") ou o código.
+        - **Situação Receita**: filtra pela situação cadastral na Receita Federal (Ativa, Baixada, etc).
+
+        Na tabela de resultados, a coluna **Código Cliente** mostra se o CNPJ já tem cadastro na
+        Biz Distribuidora: um código indica que o cliente já está cadastrado, e "Não cadastrado"
+        indica que ainda não existe cadastro para esse CNPJ.
+        """
+    )
+
 # ── Load municipalities and CNAEs ──────────────────────────────────────────────
 mun_nome_para_cod = load_municipios()
 cnae_cod_para_desc, cnae_opcoes = load_cnaes()
@@ -176,12 +194,14 @@ with col_situacao:
 rua_valida = bool(texto_rua) and len(texto_rua) >= 3
 razao_social_strip = razao_social_input.strip() if razao_social_input else ''
 razao_valida = len(razao_social_strip) >= 3
+bairro_strip = bairro_input.strip() if bairro_input else ''
+bairro_valida = len(bairro_strip) >= 3
 
-if municipio_nome and (rua_valida or razao_valida):
+if municipio_nome and (rua_valida or razao_valida or bairro_valida):
     cod_municipio = mun_nome_para_cod[municipio_nome]
     rua_filtro = texto_rua if rua_valida else ''
     num_filtro = numero_input.strip() if numero_input else None
-    bairro_filtro = bairro_input.strip() if bairro_input else None
+    bairro_filtro = bairro_strip if bairro_valida else None
     cnae_filtro = cnae_opcao.rsplit('(', 1)[-1].rstrip(')') if cnae_opcao else None
     situacao_filtro = tuple(SITUACAO_CODIGOS_POR_LABEL[situacao_opcao]) if situacao_opcao else None
     razao_social_filtro = razao_social_strip if razao_valida else None
@@ -256,5 +276,5 @@ if municipio_nome and (rua_valida or razao_valida):
             }
         )
 
-elif municipio_nome and (texto_rua or razao_social_input) and not (rua_valida or razao_valida):
-    st.info("Digite pelo menos 3 caracteres no logradouro ou na razão social para buscar.")
+elif municipio_nome and (texto_rua or razao_social_input or bairro_input) and not (rua_valida or razao_valida or bairro_valida):
+    st.info("Digite pelo menos 3 caracteres no logradouro, na razão social ou no bairro para buscar.")
