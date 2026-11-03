@@ -30,18 +30,22 @@ def _get_connection():
 
 
 # Regra de situação de crédito na Biz:
-#   situacao = 'A' e limite_aberto > 0  -> Liberado no prazo
-#   situacao = 'A' e antecipado = 'A28' -> Liberado no antecipado
-#   demais casos                        -> Suspenso
+#   situacao = 'A' e limite_aberto > 0 (e antecipado não é A28)  -> Liberado no prazo
+#   situacao = 'A' e antecipado = 'A28' ou antecipado é nulo     -> Liberado no antecipado
+#   demais casos                                                 -> Suspenso
 # "limite_aberto::text <> 'NaN'" descarta valores NaN: no tipo NUMERIC do Postgres,
 # ao contrário do IEEE754, NaN é tratado como igual a si mesmo e maior que qualquer
 # outro número, então nem "limite_aberto > 0" nem "limite_aberto = limite_aberto"
 # sozinhos excluem NaN.
+# "antecipado IS DISTINCT FROM 'A28'" (em vez de "antecipado <> 'A28'") é necessário
+# porque "<>" com NULL resulta em NULL (tratado como falso), o que faria um cliente
+# com limite_aberto > 0 e antecipado nulo cair incorretamente na regra de baixo.
 _SITUACAO_CREDITO_SQL = """
     CASE
-        WHEN situacao = 'A' AND limite_aberto > 0 AND limite_aberto::text <> 'NaN' AND antecipado <> 'A28'
+        WHEN situacao = 'A' AND limite_aberto <> 0 AND limite_aberto::text <> 'NaN'
+             AND antecipado IS DISTINCT FROM 'A28'
             THEN 'Liberado no prazo'
-        WHEN situacao = 'A' AND antecipado = 'A28'
+        WHEN situacao = 'A' AND (antecipado = 'A28' OR antecipado IS NULL)
             THEN 'Liberado no antecipado'
         ELSE 'Suspenso'
     END
