@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import duckdb
 import os
+import unicodedata
 
 from db_clientes import buscar_codigos_clientes
 
@@ -24,6 +25,12 @@ PARQUET_PATTERN = os.path.join(BASE_DIR, 'estabelecimentos_mg_part*.parquet')
 CNAES_PATH = os.path.join(BASE_DIR, 'cnaes.csv')
 
 
+def _chave_ordenacao(texto):
+    """Normaliza acentos para ordenar alfabeticamente (ex: 'Á' junto de 'A')."""
+    sem_acento = unicodedata.normalize('NFKD', texto).encode('ascii', 'ignore').decode('ascii')
+    return sem_acento.lower()
+
+
 @st.cache_data
 def load_cnaes():
     """Carrega a tabela de CNAEs (código -> descrição) para a busca por atividade."""
@@ -35,7 +42,7 @@ def load_cnaes():
     cod_para_desc = dict(zip(df_cnae['codigo'], df_cnae['descricao']))
     opcoes = sorted(
         (f"{desc} ({cod})" for cod, desc in cod_para_desc.items()),
-        key=str.lower,
+        key=_chave_ordenacao,
     )
     return cod_para_desc, opcoes
 
@@ -122,8 +129,8 @@ st.markdown("Encontre todos os estabelecimentos em uma rua de Minas Gerais.")
 with st.expander("ℹ️ Como filtrar"):
     st.markdown(
         """
-        **Para a busca começar**, selecione o **Município** e preencha pelo menos um destes campos
-        (mínimo 3 caracteres): **Logradouro**, **Razão Social** ou **Bairro**.
+        **Para a busca começar**, selecione o **Município** e preencha pelo menos um destes campos:
+        **Logradouro**, **Razão Social** ou **Bairro** (mínimo 3 caracteres), ou escolha um **CNAE**.
 
         Depois de começar a busca, use os demais campos para refinar o resultado:
         - **Número**: filtra pelo número do endereço.
@@ -170,7 +177,7 @@ with col_razao:
 with col_bairro:
     bairro_input = st.text_input("Bairro (opcional)", placeholder="Ex: CENTRO")
 
-col_cnae, col_situacao = st.columns(2)
+col_cnae, col_situacao = st.columns([3, 1])
 
 with col_cnae:
     cnae_opcao = st.selectbox(
@@ -196,8 +203,9 @@ razao_social_strip = razao_social_input.strip() if razao_social_input else ''
 razao_valida = len(razao_social_strip) >= 3
 bairro_strip = bairro_input.strip() if bairro_input else ''
 bairro_valida = len(bairro_strip) >= 3
+cnae_valida = bool(cnae_opcao)
 
-if municipio_nome and (rua_valida or razao_valida or bairro_valida):
+if municipio_nome and (rua_valida or razao_valida or bairro_valida or cnae_valida):
     cod_municipio = mun_nome_para_cod[municipio_nome]
     rua_filtro = texto_rua if rua_valida else ''
     num_filtro = numero_input.strip() if numero_input else None
