@@ -39,7 +39,7 @@ def _get_connection():
 # sozinhos excluem NaN.
 _SITUACAO_CREDITO_SQL = """
     CASE
-        WHEN situacao = 'A' AND limite_aberto > 0 AND limite_aberto::text <> 'NaN'
+        WHEN situacao = 'A' AND limite_aberto > 0 AND limite_aberto::text <> 'NaN' AND antecipado <> 'A28'
             THEN 'Liberado no prazo'
         WHEN situacao = 'A' AND antecipado = 'A28'
             THEN 'Liberado no antecipado'
